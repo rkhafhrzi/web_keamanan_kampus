@@ -1,24 +1,50 @@
 <?php
+require_once __DIR__ . '/../include/connection.php';
+
 class QRService
 {
-    /**
-     * Mengambil gambar QR Code biner dari API eksternal.
-     * @param string $kode Data yang akan di-encode.
-     * @return string|false Data gambar PNG biner, atau false jika gagal.
-     */
-    public function buat(string $kode): string|false
+    private PDO $db;
+
+    public function __construct()
     {
-        if (empty($kode)) {
-            return false;
+        $this->db = Database::getConnection();
+    }
+
+    public function validateAccess(int $userId, string $role, int $roomId): string
+    {
+        // Ambil aturan akses ruangan
+        $stmt = $this->db->prepare("
+            SELECT * FROM room_access
+            WHERE room_id = :room AND role = :role
+        ");
+        $stmt->execute([
+            'room' => $roomId,
+            'role' => $role
+        ]);
+
+        $rule = $stmt->fetch();
+
+        if (!$rule) {
+            return 'ditolak';
         }
-        $apiUrl = "https://api.qrserver.com/v1/create-qr-code/?" .
-                  http_build_query([
-                      'size' => '300x300',
-                      'data' => $kode,
-                      'margin' => 1
-                  ]);
-            
-        $response = @file_get_contents($apiUrl);
-        return $response;
+
+        $now = date('H:i:s');
+        if ($now < $rule['start_time'] || $now > $rule['end_time']) {
+            return 'ditolak';
+        }
+
+        return 'masuk';
+    }
+
+    public function logAccess(int $userId, int $roomId, string $status): void
+    {
+        $this->db->prepare("
+            INSERT INTO access_logs (user_id, room_id, access_time, status)
+            VALUES (:user, :room, NOW(), :status)
+        ")->execute([
+            'user' => $userId,
+            'room' => $roomId,
+            'status' => $status
+        ]);
     }
 }
