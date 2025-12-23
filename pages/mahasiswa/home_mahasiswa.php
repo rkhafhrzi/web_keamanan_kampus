@@ -6,9 +6,14 @@ if (!isset($_SESSION['user'])) {
     exit;
 }
 
-$user_data = $_SESSION['user'] ?? [];
+$user_data = $_SESSION['user'];
 
-$reports = []; 
+$displayName = $user_data['nama']
+    ?? $user_data['email']
+    ?? 'Pengguna';
+
+$reports = [];
+
 ?>
 
 <!DOCTYPE html>
@@ -69,7 +74,7 @@ $reports = [];
         <div class="max-w-6xl mx-auto">
             
             <section class="mb-10 p-6 bg-white shadow-lg rounded-xl border-l-4 border-gray-600">
-                <h2 class="text-3xl font-bold text-blue-950 mb-2">Selamat Datang, <?= htmlspecialchars($user_data['nama']); ?>!</h2>
+                <h2 class="text-3xl font-bold text-blue-950 mb-2">Selamat Datang, <?= htmlspecialchars($displayName); ?>!</h2>
                 <p class="text-gray-600">Portal Anda untuk semua layanan kampus. Tetap terhubung dan aman.</p>
             </section>
 

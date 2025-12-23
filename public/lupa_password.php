@@ -62,7 +62,7 @@
             </div>
 
             <div id="step-3" class="step-content fade-in space-y-6">
-                <form action="../actions/process_reset.php" method="POST" class="space-y-5">
+                <form action="../actions/process_reset_password.php" method="POST" class="space-y-5">
                     <input type="hidden" name="email_final" id="email-final">
                     <div>
                         <label class="block text-sm font-medium text-gray-100 mb-2 ml-1">Password Baru</label>
@@ -127,15 +127,26 @@
             btn.innerHTML = '<i class="fa-solid fa-circle-notch animate-spin"></i> Mengirim...';
             btn.disabled = true;
 
-            setTimeout(() => {
+            fetch('../actions/process_forgot_password.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: 'email=' + encodeURIComponent(email)
+            })
+            .then(res => res.text())
+            .then(() => {
                 document.getElementById('display-email').innerText = email;
                 document.getElementById('email-final').value = email;
-                
+                goToStep(2);
+            })
+            .catch(() => {
+                alert('Gagal mengirim email. Coba lagi.');
+            })
+            .finally(() => {
                 btn.innerHTML = 'Kirim Kode Verifikasi';
                 btn.disabled = false;
-                
-                goToStep(2);
-            }, 1500);
+            });
         }
 
         function verifyCode() {
