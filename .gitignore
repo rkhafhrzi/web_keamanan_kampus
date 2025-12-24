@@ -1,0 +1,35 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Composer dependencies
+/vendor/
+/composer.lock
+
+# Logs and cache
+/logs/
+/cache/
+/tmp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE/editor files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Node modules (kalau ada front-end)
+node_modules/
+
+# Backup files
+*.bak
+*.swp
+*.tmp
+
+# Other sensitive files
+*.key
+*.pem

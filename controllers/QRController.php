@@ -59,6 +59,23 @@ $result = $service->validateAccess(
     $data['room_id']
 );
 
+if ($result !== 'masuk') {
+    echo json_encode(['status' => 'ditolak', 'message' => 'Akses ditolak']);
+    exit;
+}
+
+// ambil info user pemilik QR
+$stmt = Database::getConnection()->prepare("
+    SELECT id, email
+    FROM users
+    WHERE id = :id
+");
+$stmt->execute(['id' => $data['user_id']]);
+$user = $stmt->fetch(PDO::FETCH_ASSOC);
+
 echo json_encode([
-    'message' => $result ? 'Akses diizinkan' : 'Akses ditolak'
+    'status' => 'diizinkan',
+    'message' => 'Akses diizinkan',
+    'user' => $user,
+    'room_id' => $data['room_id']
 ]);
