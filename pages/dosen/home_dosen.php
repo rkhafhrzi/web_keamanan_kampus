@@ -1,41 +1,74 @@
 <?php
 session_start();
-if (!isset($_SESSION['user'])) {
-    header('Location: login.php');
+
+// 1. Panggil file koneksi
+require_once '../../include/connection.php';
+
+if (
+    !isset($_SESSION['user']) ||
+    !is_array($_SESSION['user']) ||
+    $_SESSION['user']['role'] !== 'dosen'
+) {
+    header('Location: ../../public/login.php');
     exit;
 }
 
-$user_data = $_SESSION['user'] ?? ['nama' => 'Pengguna'];
+$user = $_SESSION['user'];
+$userId = $user['id'];
+$nama = $user['nama'] ?? $user['email'] ?? 'Dosen';
 
-$reports = []; 
+// 2. Cara mengambil koneksi PDO dari Class Database
+$pdo = Database::getConnection();
 
-$room_details = [
-    'R-305' => [
-        'nama' => 'Ruang Kelas Multimedia',
-        'kapasitas' => 40,
-        'fasilitas' => ['Proyektor', 'AC', 'Whiteboard Digital', 'WIFI'],
-        'lokasi' => 'Gedung A, Lantai 3',
-        'status' => 'Tersedia',
-    ],
-    'LAB-KIM' => [
-        'nama' => 'Laboratorium Kimia Dasar',
-        'kapasitas' => 25,
-        'fasilitas' => ['Fume Hood', 'Peralatan Gelas Lengkap', 'Stasiun Darurat'],
-        'lokasi' => 'Gedung Lab, Lantai 1',
-        'status' => 'Sedang Dipakai',
-    ],
-];
+try {
+    // --- QUERY 1: INFO KEAMANAN ---
+    // Menggunakan PDO prepare statement agar lebih aman
+    // --- QUERY 1: INFO KEAMANAN TERBARU ---
+// Kita ambil 1 laporan terbaru secara global (tanpa WHERE user_id) 
+// atau dari tabel khusus informasi jika ada.
+    $stmt_info = $pdo->prepare("SELECT report_type, description, generated_at FROM reports ORDER BY generated_at DESC LIMIT 1");
+    $stmt_info->execute();
+    $info_keamanan = $stmt_info->fetch();
 
-$search_query = $_GET['q'] ?? '';
+    // --- QUERY 2: STATUS LAPORAN TERAKHIR ---
+    // Sesuaikan nama tabel (misal: reports atau lost_items) dan kolom (misal: user_id)
+    // --- QUERY 3: BARANG HILANG TERAKHIR ---
+    // --- QUERY BARANG HILANG TERAKHIR ---
+    $stmt_lost = $pdo->prepare("SELECT id, item_name, description, status, lost_date FROM lost_items WHERE reporter_id = :userId ORDER BY created_at DESC LIMIT 2");
+    $stmt_lost->execute(['userId' => $userId]);
+    $lost_items = $stmt_lost->fetchAll();
+
+} catch (PDOException $e) {
+    // Jika ada error query, simpan sebagai array kosong agar halaman tidak pecah
+    $info_keamanan = null;
+    $reports = [];
+    // Opsi: echo "Error: " . $e->getMessage(); 
+}
+
+// Inisialisasi variabel
+// 1. Ambil input dan bersihkan spasi di awal/akhir
+$search_query = isset($_GET['q']) ? trim($_GET['q']) : '';
 $search_result = null;
 
-if ($search_query) {
-    $key = strtoupper(trim($search_query));
-    if (isset($room_details[$key])) {
-        $search_result = $room_details[$key];
+if ($search_query !== '') {
+    try {
+        $clean_query = str_replace(' ', '', $search_query);
+        $stmt_room = $pdo->prepare("SELECT * FROM rooms WHERE 
+            REPLACE(name, ' ', '') LIKE :q1 OR 
+            REPLACE(building, ' ', '') LIKE :q2 
+            LIMIT 1");
+
+        $stmt_room->execute([
+            'q1' => "%$clean_query%",
+            'q2' => "%$clean_query%"
+        ]);
+        $search_result = $stmt_room->fetch();
+    } catch (PDOException $e) {
+        error_log($e->getMessage());
     }
 }
 ?>
+
 
 <!DOCTYPE html>
 <html lang="en">
@@ -77,7 +110,9 @@ if ($search_query) {
         </button>
         <h1 class="text-2xl font-bold text-blue-900 hidden md:block">GeoSafe</h1>
         <ul class="hidden md:flex space-x-10 text-blue-900 font-medium items-center">
-            <li><a href="home_dosen.php" class="text-blue-600 font-bold border-b-2 border-blue-600 pb-1 transition duration-150">Home</a></li>
+            <li><a href="home_dosen.php"
+                    class="text-blue-600 font-bold border-b-2 border-blue-600 pb-1 transition duration-150">Home</a>
+            </li>
             <li><a href="apps_dosen.php" class="hover:text-blue-600 transition duration-150">Apps</a></li>
             <li>
                 <a href="../../public/logout.php"
@@ -88,117 +123,188 @@ if ($search_query) {
             </li>
         </ul>
     </nav>
-    
+
     <main class="min-h-screen bg-gray-50 pt-10 pb-16 px-4 sm:px-6 lg:px-8">
         <div class="max-w-6xl mx-auto">
-            
+
             <section class="mb-10 p-6 bg-white shadow-lg rounded-xl border-l-4 border-blue-600">
-                <h2 class="text-3xl font-bold text-blue-950 mb-2">Selamat Datang, <?= htmlspecialchars($user_data['nama']); ?>!</h2>
+                <h2 class="text-3xl font-bold text-blue-950 mb-2">Selamat Datang, <?= htmlspecialchars($nama); ?>!</h2>
                 <p class="text-gray-600">Portal Anda untuk semua layanan kampus. Tetap terhubung dan aman.</p>
             </section>
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                
+
                 <div class="lg:col-span-2 space-y-8">
-                    
+
                     <div class="bg-white p-6 shadow-xl rounded-xl">
                         <h3 class="text-xl font-bold text-blue-950 mb-5 border-b pb-2 flex items-center">
-                            <i class="fa-solid fa-map-marked-alt mr-2 text-blue-600"></i> Cari & Cek Status Ruangan
+                            <i class="fa-solid fa-map-marked-alt mr-2 text-blue-600"></i> Cari & Cek Lokasi Ruangan
                         </h3>
-                        
-                        <form action="room_location.php" method="GET" class="space-y-4 mb-4">
-                            <label for="room_query" class="block text-sm font-medium text-gray-700">Masukkan Kode Ruangan</label>
-                            
+
+                        <form action="" method="GET" class="space-y-4 mb-4">
+                            <label for="room_query" class="block text-sm font-medium text-gray-700">Nama Ruangan atau
+                                Gedung</label>
                             <div class="flex space-x-2">
-                                <input type="text" id="room_query" name="q" required value="<?= htmlspecialchars($search_query); ?>"
+                                <input type="text" id="room_query" name="q" required
+                                    value="<?= htmlspecialchars($search_query); ?>"
                                     class="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition shadow-sm"
-                                    placeholder="Contoh: R-305 atau LAB-KIM">
-                                
+                                    placeholder="Contoh: Lab Komputer atau Gedung A">
+
                                 <button type="submit"
-                                    class="inline-flex items-center px-4 py-3 border border-transparent text-sm font-medium rounded-lg shadow-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 transition duration-150">
+                                    class="inline-flex items-center px-4 py-3 border border-transparent text-sm font-medium rounded-lg shadow-md text-white bg-blue-600 hover:bg-blue-700 transition duration-150">
                                     <i class="fa-solid fa-search"></i>
                                 </button>
                             </div>
                         </form>
-                        
+
                         <?php if ($search_query && $search_result): ?>
-                            <div class="mt-4 p-4 border-l-4 <?= $search_result['status'] == 'Tersedia' ? 'border-green-600 bg-green-50' : 'border-red-600 bg-red-50' ?> rounded-lg shadow-inner">
+                            <div class="mt-4 p-4 border-l-4 border-blue-600 bg-blue-50 rounded-lg shadow-inner">
                                 <h4 class="text-lg font-bold text-blue-900 mb-2 flex items-center">
-                                    <i class="fa-solid fa-building mr-2"></i> Detail: <?= strtoupper(htmlspecialchars($search_query)); ?>
+                                    <i class="fa-solid fa-location-dot mr-2 text-red-500"></i>
+                                    <?= htmlspecialchars($search_result['name']); ?>
                                 </h4>
-                                <ul class="text-sm space-y-1 text-gray-700">
-                                    <li><span class="font-semibold">Nama:</span> <?= htmlspecialchars($search_result['nama']); ?></li>
-                                    <li><span class="font-semibold">Lokasi:</span> <?= htmlspecialchars($search_result['lokasi']); ?></li>
-                                    <li><span class="font-semibold">Status:</span> 
-                                        <span class="font-bold <?= $search_result['status'] == 'Tersedia' ? 'text-green-700' : 'text-red-700' ?>">
-                                            <?= htmlspecialchars($search_result['status']); ?>
+                                <ul class="text-sm space-y-2 text-gray-700">
+                                    <li><span class="font-semibold">Gedung:</span>
+                                        <?= htmlspecialchars($search_result['building']); ?></li>
+                                    <li><span class="font-semibold">Akses:</span>
+                                        <span class="px-2 py-0.5 bg-gray-200 rounded text-[10px] font-bold uppercase">
+                                            <?= htmlspecialchars($search_result['access_role']); ?>
                                         </span>
                                     </li>
-                                    <li><span class="font-semibold">Fasilitas:</span> <?= implode(', ', array_slice($search_result['fasilitas'], 0, 2)); ?>...</li>
+                                    <li><span class="font-semibold">Koordinat:</span>
+                                        <span class="text-xs text-blue-600 italic">
+                                            <?= htmlspecialchars($search_result['latitude']); ?>,
+                                            <?= htmlspecialchars($search_result['longitude']); ?>
+                                        </span>
+                                    </li>
                                 </ul>
                             </div>
                         <?php elseif ($search_query && !$search_result): ?>
-                             <div class="mt-4 p-4 border-l-4 border-yellow-600 bg-yellow-50 rounded-lg shadow-inner text-sm text-gray-700">
-                                <p class="font-semibold flex items-center"><i class="fa-solid fa-exclamation-triangle mr-2"></i> Ruangan dengan kode **<?= htmlspecialchars($search_query); ?>** tidak ditemukan.</p>
-                             </div>
+                            <div
+                                class="mt-4 p-4 border-l-4 border-yellow-600 bg-yellow-50 rounded-lg text-sm text-gray-700">
+                                <p class="font-semibold flex items-center">
+                                    <i class="fa-solid fa-exclamation-triangle mr-2"></i> Ruangan
+                                    "**<?= htmlspecialchars($search_query); ?>**" tidak ditemukan.
+                                </p>
+                            </div>
                         <?php endif; ?>
 
-                        <p class="text-xs text-gray-500 mt-4">Untuk informasi lebih lengkap tentang peminjaman, gunakan menu **Apps**.</p>
+                        <p class="text-xs text-gray-500 mt-4 italic">Gunakan fitur ini untuk mencari titik koordinat
+                            ruangan di area kampus.</p>
                     </div>
-
                     <div class="bg-white p-6 shadow-xl rounded-xl">
-                        <h3 class="text-xl font-bold text-blue-950 mb-5 border-b pb-2 flex items-center"><i class="fa-solid fa-bolt mr-2 text-indigo-500"></i> Akses Cepat</h3>
+                        <h3 class="text-xl font-bold text-blue-950 mb-5 border-b pb-2 flex items-center"><i
+                                class="fa-solid fa-bolt mr-2 text-indigo-500"></i> Akses Cepat</h3>
                         <div class="grid grid-cols-2 max-w-xl mx-auto gap-6 text-center">
-                            
-                            <a href="qr_dosen.php" class="block p-4 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition duration-150 shadow-md">
+
+                            <a href="qr_dosen.php"
+                                class="block p-4 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition duration-150 shadow-md">
                                 <i class="fa-solid fa-qrcode text-4xl text-indigo-950 mb-2"></i>
                                 <p class="text-md font-semibold text-gray-700">Tampilkan QR Code</p>
                                 <p class="text-xs text-gray-500 mt-1">Akses cepat dan validasi</p>
                             </a>
-                            
-                            <a href="../security_reports.php" class="block p-4 bg-red-50 hover:bg-red-100 rounded-lg transition duration-150 shadow-md">
+
+                            <a href="../security_reports.php"
+                                class="block p-4 bg-red-50 hover:bg-red-100 rounded-lg transition duration-150 shadow-md">
                                 <i class="fa-solid fa-flag text-4xl text-red-600 mb-2"></i>
                                 <p class="text-md font-semibold text-gray-700">Lapor Keamanan</p>
                                 <p class="text-xs text-gray-500 mt-1">Laporkan insiden darurat</p>
                             </a>
-                            
+
                         </div>
                     </div>
 
                 </div>
 
                 <div class="lg:col-span-1 space-y-8">
-                    
+
                     <div class="bg-white p-6 shadow-xl rounded-xl">
-                        <h3 class="text-xl font-bold text-blue-950 mb-4 border-b pb-2 flex items-center"><i class="fa-solid fa-shield-halved mr-2 text-green-600"></i> Info Keamanan Terbaru</h3>
-                        
-                        <div class="p-3 bg-green-50 rounded-lg border border-green-200 text-sm text-gray-700 mb-4">
-                            <p class="font-bold text-green-700 mb-1">Peringatan: Peningkatan Patroli Malam</p>
-                            <p class="text-xs text-gray-600 line-clamp-2">
-                                Dalam rangka meningkatkan keamanan, jam patroli malam di area asrama dan perpustakaan diperpanjang. Harap selalu kunci kendaraan Anda.
-                            </p>
-                        </div>
+                        <h3 class="text-xl font-bold text-blue-950 mb-4 border-b pb-2 flex items-center">
+                            <i class="fa-solid fa-shield-halved mr-2 text-green-600"></i> Info Keamanan Terbaru
+                        </h3>
+
+                        <?php if ($info_keamanan): ?>
+                            <div class="p-3 bg-green-50 rounded-lg border border-green-200 text-sm text-gray-700 mb-4">
+                                <p class="font-bold text-green-700 mb-1">
+                                    <?php echo htmlspecialchars($info_keamanan['report_type'] ?? $info_keamanan['report_type'] ?? 'Informasi'); ?>
+                                </p>
+                                <p class="text-xs text-gray-600 line-clamp-2">
+                                    <?php echo htmlspecialchars($info_keamanan['description'] ?? $info_keamanan['description'] ?? '-'); ?>
+                                </p>
+                            </div>
+                        <?php else: ?>
+                            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs text-gray-500 mb-4 italic">
+                                Belum ada informasi keamanan terbaru saat ini.
+                            </div>
+                        <?php endif; ?>
 
                         <a href="../security_information.php"
                             class="w-full text-center inline-block bg-blue-950 text-white px-4 py-2 text-sm font-medium rounded-lg hover:bg-blue-700 transition duration-150">
                             Lihat Semua Informasi Detail <i class="fa-solid fa-arrow-right ml-2"></i>
                         </a>
                     </div>
-                    
-                    <div class="bg-white p-6 shadow-xl rounded-xl">
-                        <h3 class="text-xl font-bold text-blue-950 mb-4 border-b pb-2 flex items-center"><i class="fa-solid fa-map-pin mr-2 text-red-500"></i> Status Laporan Terakhir</h3>
-                        <?php if (empty($reports)): ?>
+
+                    <div class="bg-white p-6 shadow-xl rounded-xl mt-8">
+                        <h3 class="text-xl font-bold text-blue-950 mb-4 border-b pb-2 flex items-center">
+                            <i class="fa-solid fa-map-pin mr-2 text-red-500"></i> Status Laporan
+                        </h3>
+
+                        <?php if (empty($lost_items)): ?>
                             <div class="text-center py-6 bg-gray-50 rounded-lg border border-dashed border-gray-300">
-                                <i class="fa-solid fa-check-circle text-3xl text-green-500 mb-2"></i>
-                                <p class="text-md text-gray-600">Tidak ada laporan aktif saat ini.</p>
-                                <p class="text-sm text-gray-500 mt-1">Semua aman. Ajukan laporan jika terjadi insiden.</p>
+                                <i class="fa-solid fa-circle-info text-3xl text-gray-400 mb-2"></i>
+                                <p class="text-md text-gray-600">Tidak ada laporan barang hilang.</p>
+                                <p class="text-sm text-gray-500 mt-1">Gunakan menu lapor jika Anda kehilangan sesuatu.</p>
                             </div>
                         <?php else: ?>
-                            <?php endif; ?>
-                    </div>
+                            <div class="space-y-4">
+                                <?php foreach ($lost_items as $item): ?>
+                                    <div
+                                        class="p-4 bg-orange-50/50 rounded-lg border border-orange-100 flex justify-between items-start">
+                                        <div class="flex-1 pr-4">
+                                            <p class="text-sm font-bold text-blue-950 uppercase tracking-wide">
+                                                <?php echo htmlspecialchars($item['item_name']); ?>
+                                            </p>
 
+                                            <p class="text-xs text-gray-600 mt-1 line-clamp-1">
+                                                <?php echo htmlspecialchars($item['description']); ?>
+                                            </p>
+
+                                            <p class="text-[10px] text-gray-400 mt-2 flex items-center">
+                                                <i class="fa-regular fa-calendar-check mr-1"></i>
+                                                ID: #LI-<?php echo htmlspecialchars($item['id']); ?> •
+                                                Kejadian: <?php echo date('d M Y', strtotime($item['lost_date'])); ?>
+                                            </p>
+                                        </div>
+
+                                        <div class="text-right">
+                                            <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase 
+                            <?php
+                            $status_lost = strtolower($item['status'] ?? 'hilang');
+                            if ($status_lost == 'ditemukan' || $status_lost == 'dikembalikan') {
+                                echo 'bg-green-100 text-green-700';
+                            } else {
+                                echo 'bg-red-100 text-red-700';
+                            }
+                            ?>">
+                                                <?php echo htmlspecialchars($item['status']); ?>
+                                            </span>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+
+                            <div class="mt-4 pt-2 text-center">
+                                <a href="../security_reports.php"
+                                    class="text-xs font-semibold text-green-600 hover:text-green-800 flex items-center justify-center">
+                                    Lihat Status Laporan <i class="fa-solid fa-arrow-right ml-2"></i>
+                                </a>
+                            </div>
+                        <?php endif; ?>
+                    </div>
                 </div>
+
             </div>
+        </div>
         </div>
     </main>
 
@@ -214,7 +320,7 @@ if ($search_query) {
 
         function toggleSidebar() {
             sidebar.classList.toggle("-translate-x-full");
-            
+
             if (sidebar.classList.contains("-translate-x-full")) {
                 overlay.classList.add("opacity-0");
                 setTimeout(() => overlay.classList.add("hidden"), 300);
@@ -223,7 +329,7 @@ if ($search_query) {
                 setTimeout(() => overlay.classList.remove("opacity-0"), 10);
             }
         }
-        
+
         menuBtn.addEventListener("click", toggleSidebar);
         overlay.addEventListener("click", toggleSidebar);
     </script>

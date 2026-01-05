@@ -11,71 +11,86 @@ class PasswordResetService
         $this->db = Database::getConnection();
     }
 
-    public function sendResetLink(string $email): bool
+    public function sendVerificationCode(string $email): bool
     {
-        $stmt = $this->db->prepare("SELECT * FROM users WHERE email = :email");
+        $stmt = $this->db->prepare("SELECT id FROM users WHERE email = :email");
         $stmt->execute(['email' => $email]);
         $user = $stmt->fetch();
 
-        if (!$user) return false;
+        if (!$user) {
+            return false;
+        }
 
-        $token = bin2hex(random_bytes(32));
-        $expires = date('Y-m-d H:i:s', strtotime('+30 minutes'));
+        $otp = (string) random_int(100000, 999999);
+        $expires = date('Y-m-d H:i:s', strtotime('+10 minutes'));
 
+        // hapus OTP lama
+        $this->db->prepare(
+            "DELETE FROM password_resets WHERE user_id = :uid"
+        )->execute(['uid' => $user['id']]);
+
+        // simpan OTP
         $this->db->prepare("
-            INSERT INTO password_resets (user_id, token, expires_at)
-            VALUES (:uid, :token, :exp)
+            INSERT INTO password_resets (user_id, token, expires_at, used)
+            VALUES (:uid, :token, :exp, 0)
         ")->execute([
-            'uid' => $user['id'],
-            'token' => $token,
-            'exp' => $expires
+            'uid'   => $user['id'],
+            'token' => $otp,
+            'exp'   => $expires
         ]);
-
-        $link = "http://localhost/keamanan_kampus/public/reset_password.php?token={$token}";
 
         $sent = Mailer::send(
             $email,
-            'Reset Password',
-            "Klik link berikut untuk reset password:<br><a href='{$link}'>Reset Password</a>"
+            'Kode Verifikasi Reset Password',
+            "Kode OTP Anda: <b>{$otp}</b> (berlaku 10 menit)"
         );
 
-        $this->logNotification($user['id'], 'reset_password', $sent);
+        $this->db->prepare("
+            INSERT INTO notifications (user_id, type, message, status)
+            VALUES (:uid, 'reset_password', 'Kirim OTP reset password', :status)
+        ")->execute([
+            'uid'    => $user['id'],
+            'status' => $sent ? 'sent' : 'failed'
+        ]);
 
         return $sent;
     }
 
-    public function resetPasswordByEmail(string $email, string $newPassword): bool
+    public function resetPassword(string $email, string $newPassword): bool
     {
-        $stmt = $this->db->prepare("
-            SELECT * FROM users WHERE email = :email
-        ");
+        // ambil user
+        $stmt = $this->db->prepare(
+            "SELECT id FROM users WHERE email = :email"
+        );
         $stmt->execute(['email' => $email]);
         $user = $stmt->fetch();
 
-        if (!$user) return false;
+        if (!$user) {
+            return false;
+        }
 
+        // hash password baru
         $hash = password_hash($newPassword, PASSWORD_DEFAULT);
 
+        // update password
         $this->db->prepare("
-            UPDATE users SET password = :pw WHERE id = :id
+            UPDATE users
+            SET password = :pw
+            WHERE id = :id
         ")->execute([
             'pw' => $hash,
             'id' => $user['id']
         ]);
 
+        // (opsional tapi rapi) catat notifikasi
+        $this->db->prepare("
+            INSERT INTO notifications (user_id, type, message, status)
+            VALUES (:uid, 'reset_password', 'Password berhasil direset', 'sent')
+        ")->execute([
+            'uid' => $user['id']
+        ]);
+
         return true;
     }
 
-    private function logNotification(int $userId, string $type, bool $sent): void
-    {
-        $this->db->prepare("
-            INSERT INTO notifications (user_id, type, message, status)
-            VALUES (:uid, :type, :msg, :status)
-        ")->execute([
-            'uid' => $userId,
-            'type' => $type,
-            'msg' => 'Email reset password',
-            'status' => $sent ? 'sent' : 'failed'
-        ]);
-    }
 }

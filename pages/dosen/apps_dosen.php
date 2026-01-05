@@ -1,8 +1,12 @@
 <?php
 session_start();
 
-if (!isset($_SESSION['user'])) {
-    header('Location: login.php');
+if (
+    !isset($_SESSION['user']) ||
+    !is_array($_SESSION['user']) ||
+    $_SESSION['user']['role'] !== 'dosen'
+) {
+    header('Location: ../../public/login.php');
     exit;
 }
 ?>

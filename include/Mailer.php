@@ -1,28 +1,55 @@
 <?php
 
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
+require_once __DIR__ . '/../vendor/autoload.php';
+
 class Mailer
 {
-    /**
-     * Simulated mail sender (DEV / INTERNAL MODE)
-     */
     public static function send(string $to, string $subject, string $body): bool
     {
-        // Log ke file (opsional, untuk bukti)
-        $log = sprintf(
-            "[%s] TO: %s | SUBJECT: %s\n%s\n\n",
-            date('Y-m-d H:i:s'),
-            $to,
-            $subject,
-            strip_tags($body)
-        );
+        $mail = new PHPMailer(true);
 
-        file_put_contents(
-            __DIR__ . '/../storage/mail.log',
-            $log,
-            FILE_APPEND
-        );
+        try {
+            // ======================
+            // SMTP CONFIG
+            // ======================
+            $mail->isSMTP();
+            $mail->Host       = 'smtp.gmail.com';
+            $mail->SMTPAuth   = true;
 
-        // Anggap email berhasil terkirim
-        return true;
+            // ⚠️ EMAIL PENGIRIM (WAJIB VALID)
+            $mail->Username   = 'if24.rakhafahrezi@mhs.ubpkarawang.ac.id';
+            $mail->Password   = 'ecfc ywcb gzbl zoln';
+
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+            $mail->Port       = 587;
+
+            // ======================
+            // SENDER & RECEIVER
+            // ======================
+            $mail->setFrom('if24.rakhafahrezi@mhs.ubpkarawang.ac.id', 'GeoSafe System');
+            $mail->addAddress($to);
+
+            // ======================
+            // CONTENT
+            // ======================
+            $mail->isHTML(true);
+            $mail->Subject = $subject;
+            $mail->Body    = $body;
+
+            $mail->send();
+            return true;
+
+        } catch (Exception $e) {
+            // log error kalau gagal
+            file_put_contents(
+                __DIR__ . '/../storage/mail_error.log',
+                $mail->ErrorInfo . PHP_EOL,
+                FILE_APPEND
+            );
+            return false;
+        }
     }
 }

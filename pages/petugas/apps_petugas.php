@@ -1,10 +1,8 @@
 <?php
 session_start();
-if (!isset($_SESSION['user']) || $_SESSION['user'] !== 'petugas') {
-    if (!isset($_SESSION['user'])) {
-        header('Location: ../../public/login.php');
-        exit;
-    }
+if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'petugas') {
+    header('Location: ../../public/login.php');
+    exit;
 }
 ?>
 

@@ -1,23 +1,26 @@
 <?php
 
+require_once __DIR__ . '/env.php';
+
 class Database
 {
     private static ?PDO $instance = null;
 
-    private string $host;
-    private string $db;
-    private string $user;
-    private string $pass;
-    private string $charset = 'utf8mb4';
-
     private function __construct()
     {
-        $this->host = 'localhost';
-        $this->db   = 'geosafe';
-        $this->user = 'root';
-        $this->pass = '';
+        global $env;
 
-        $dsn = "mysql:host={$this->host};dbname={$this->db};charset={$this->charset}";
+        $host    = $env['DB_HOST'] ?? 'localhost';
+        $db      = $env['DB_NAME'] ?? 'geosafe';
+        $user    = $env['DB_USER'] ?? 'root';
+        $pass    = $env['DB_PASS'] ?? 'RootMysql123!';
+        $charset = $env['DB_CHARSET'] ?? 'utf8mb4';
+
+        if (!$db || !$user) {
+            die('Konfigurasi database di .env belum lengkap');
+        }
+
+        $dsn = "mysql:host={$host};dbname={$db};charset={$charset}";
 
         $options = [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
@@ -26,7 +29,7 @@ class Database
         ];
 
         try {
-            self::$instance = new PDO($dsn, $this->user, $this->pass, $options);
+            self::$instance = new PDO($dsn, $user, $pass, $options);
         } catch (PDOException $e) {
             die('Koneksi database gagal: ' . $e->getMessage());
         }
@@ -43,7 +46,6 @@ class Database
         return self::$instance;
     }
 
-    // Cegah clone & unserialize
     private function __clone() {}
     public function __wakeup() {}
 }

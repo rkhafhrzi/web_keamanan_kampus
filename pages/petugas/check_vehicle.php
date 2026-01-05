@@ -1,64 +1,57 @@
 <?php
 session_start();
+require_once '../../include/connection.php';
 
-if (!isset($_SESSION['user']) || $_SESSION['user'] !== 'petugas') {
-      if (!isset($_SESSION['user'])) {
-            header('Location: ../../public/login.php');
-            exit;
-      }
+// Proteksi Halaman
+if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'petugas') {
+      header('Location: ../../public/login.php');
+      exit;
 }
 
+$pdo = Database::getConnection();
 $vehicle_info = null;
 $search_query = '';
 
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['search_plat'])) {
+if (isset($_POST['search_plat'])) {
       $search_query = strtoupper(trim($_POST['plat_nomor']));
 
-      $registered_vehicles = [
-            'B 1234 ABC' => [
-                  'pemilik' => 'Rizky Fadillah (Mahasiswa)',
-                  'jenis' => 'Sepeda Motor',
-                  'tipe' => 'Honda Vario 150',
-                  'status_izin' => 'Aktif (Berlaku hingga 12/2026)',
-                  'area_izin' => 'Parkir B & C',
-                  'catatan' => 'Wajib menggunakan helm standar.',
-            ],
-            'D 5678 EFG' => [
-                  'pemilik' => 'Dr. Budi Santoso (Dosen)',
-                  'jenis' => 'Mobil',
-                  'tipe' => 'Toyota Innova',
-                  'status_izin' => 'Aktif Permanen',
-                  'area_izin' => 'Parkir VIP',
-                  'catatan' => 'Memiliki akses ke Parkir Utama.',
-            ],
-            'A 0000 ZZZ' => [
-                  'pemilik' => 'Tidak Terdaftar',
-                  'jenis' => 'Tidak Diketahui',
-                  'tipe' => 'Tidak Diketahui',
-                  'status_izin' => 'Ilegal / Tidak Memiliki Izin',
-                  'area_izin' => 'N/A',
-                  'catatan' => 'Peringatan: Kendaraan tidak terdaftar atau izin kadaluarsa.',
-            ],
-      ];
+      try {
+            // Query menggunakan kolom nama_lengkap dan nim_nip sesuai data Anda
+            $sql = "SELECT v.*, u.nama_lengkap, u.nim_nip 
+                FROM vehicles v 
+                JOIN users u ON v.user_id = u.id 
+                WHERE REPLACE(v.plate_number, ' ', '') = REPLACE(:plat, ' ', '')";
 
-      if (isset($registered_vehicles[$search_query])) {
-            $vehicle_info = $registered_vehicles[$search_query];
-      } else {
-            $vehicle_info = [
-                  'pemilik' => 'Tidak Ditemukan',
-                  'jenis' => 'N/A',
-                  'tipe' => 'N/A',
-                  'status_izin' => 'Tidak Ditemukan',
-                  'area_izin' => 'N/A',
-                  'catatan' => 'Plat nomor tidak ditemukan dalam database kendaraan terdaftar.',
-            ];
-      }
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute(['plat' => $search_query]);
+            $data = $stmt->fetch(PDO::FETCH_ASSOC);
 
-      if ($search_query == 'A 0000 ZZZ') {
-            $vehicle_info = $registered_vehicles['A 0000 ZZZ'];
+            if ($data) {
+                  $vehicle_info = [
+                        'status_izin' => ($data['status'] == 'aktif') ? 'Aktif (Terdaftar)' : 'Non-Aktif',
+                        'pemilik' => $data['nama_lengkap'] . " (" . $data['nim_nip'] . ")", // Andi Saputra (245530121617)
+                        'jenis' => $data['type'],
+                        'tipe' => strtoupper($data['brand']) . " - " . $data['color'],
+                        'area_izin' => "Lingkungan Kampus UBP",
+                        'catatan' => "Data tervalidasi. Silakan cocokkan fisik kendaraan dengan STNK/SIM di bawah.",
+                        // Simpan data mentah untuk menampilkan foto
+                        'stnk' => $data['stnk_file'],
+                        'sim' => $data['ktp_sim_file']
+                  ];
+            } else {
+                  $vehicle_info = [
+                        'status_izin' => 'Tidak Ditemukan / Ilegal',
+                        'pemilik' => 'TIDAK DIKENAL',
+                        'jenis' => '-',
+                        'tipe' => '-',
+                        'area_izin' => 'DILARANG PARKIR',
+                        'catatan' => 'Peringatan: Plat nomor ini tidak terdaftar dalam database GeoSafe!'
+                  ];
+            }
+      } catch (PDOException $e) {
+            die("Error: " . $e->getMessage());
       }
 }
-
 ?>
 
 <!DOCTYPE html>
@@ -116,7 +109,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['search_plat'])) {
             <h1 class="text-2xl font-bold text-blue-900 hidden md:block">GeoSafe</h1>
             <ul class="hidden md:flex space-x-10 text-blue-900 font-medium items-center">
                   <li><a href="home_petugas.php" class="hover:text-blue-600 transition duration-150">Home</a></li>
-                  <li><a href="apps_petugas.php" class="hover:text-blue-600 transition duration-150">Apps</a></li>
+                  <li><a href="apps_petugas.php"
+                              class="text-blue-600 font-bold border-b-2 border-blue-600 pb-1 transition duration-150">Apps</a>
+                  </li>
                   <li>
                         <a href="../../public/logout.php"
                               class="bg-red-600 text-white px-3 py-1 rounded-lg hover:bg-red-700 hover:shadow-lg transform hover:-translate-y-0.5 transition duration-300 shadow-md flex items-center space-x-1">
@@ -128,7 +123,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['search_plat'])) {
       </nav>
 
 
-      <main class="min-h-screen bg-gray-100 pt-10 pb-16 px-4 sm:px-6 lg:px-8">
+      <main class="min-h-screen bg-gray-50">
+            <section class="w-full bg-gray-50 pt-8 pb-6 mb-8 border-b-2 border-gray-200">
+                  <div class="max-w-4xl mx-auto text-center px-6">
+                        <i class="fa-solid fa-check-to-slot text-5xl text-blue-950 mb-3"></i>
+                        <h2 class="text-3xl font-extrabold text-blue-950">Cek Kendaraan Terdaftar</h2>
+                        <p class="text-gray-600">Verifikasi data kendaraan yang terdaftar dalam sistem.</p>
+                  </div>
+            </section>
+
             <div class="max-w-4xl mx-auto">
 
                   <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -160,11 +163,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['search_plat'])) {
                                     <i class="fa-solid fa-clipboard-list mr-2 text-indigo-600"></i> Detail Kendaraan
                               </h3>
 
+
+
                               <?php if ($vehicle_info): ?>
                                     <?php
                                     $status_class = 'text-gray-600 bg-gray-100';
                                     $status_icon = 'fa-info-circle';
 
+                                    // Logika warna status berdasarkan nilai status_izin
                                     if (strpos($vehicle_info['status_izin'], 'Aktif') !== false) {
                                           $status_class = 'text-green-800 bg-green-100';
                                           $status_icon = 'fa-check-circle';
@@ -188,26 +194,35 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['search_plat'])) {
                                     <div class="space-y-3 text-sm">
                                           <div class="flex justify-between items-center border-b pb-2">
                                                 <span class="font-medium text-gray-600">Pemilik Terdaftar:</span>
-                                                <span
-                                                      class="font-bold text-blue-800 text-right"><?= htmlspecialchars($vehicle_info['pemilik']); ?></span>
+                                                <span class="font-bold text-blue-800 text-right">
+                                                      <?= htmlspecialchars($vehicle_info['pemilik']); ?>
+                                                </span>
                                           </div>
+
                                           <div class="flex justify-between items-center border-b pb-2">
                                                 <span class="font-medium text-gray-600">Jenis Kendaraan:</span>
-                                                <span
-                                                      class="text-gray-700"><?= htmlspecialchars($vehicle_info['jenis']); ?></span>
+                                                <span class="text-gray-700 capitalize">
+                                                      <?= htmlspecialchars($vehicle_info['jenis']); ?>
+                                                </span>
                                           </div>
+
                                           <div class="flex justify-between items-center border-b pb-2">
                                                 <span class="font-medium text-gray-600">Tipe/Model:</span>
-                                                <span
-                                                      class="text-gray-700"><?= htmlspecialchars($vehicle_info['tipe']); ?></span>
+                                                <span class="text-gray-700">
+                                                      <?= htmlspecialchars($vehicle_info['tipe']); ?>
+                                                </span>
                                           </div>
+
                                           <div class="flex justify-between items-center border-b pb-2">
                                                 <span class="font-medium text-gray-600">Area Izin Parkir:</span>
-                                                <span
-                                                      class="font-bold text-orange-600"><?= htmlspecialchars($vehicle_info['area_izin']); ?></span>
+                                                <span class="font-bold text-orange-600">
+                                                      <?= htmlspecialchars($vehicle_info['area_izin']); ?>
+                                                </span>
                                           </div>
+
                                           <div class="pt-3 border-t mt-4">
-                                                <span class="font-medium text-gray-600 block mb-1">Catatan Petugas:</span>
+                                                <span class="font-medium text-gray-600 block mb-1">Catatan
+                                                      Petugas:</span>
                                                 <p
                                                       class="p-3 bg-gray-50 rounded-lg text-gray-700 italic border border-gray-200">
                                                       <?= htmlspecialchars($vehicle_info['catatan']); ?>
@@ -218,7 +233,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['search_plat'])) {
                               <?php else: ?>
                                     <div class="text-center py-10 bg-gray-50 rounded-lg border border-dashed border-gray-300">
                                           <i class="fa-solid fa-circle-question text-4xl text-gray-500 mb-3"></i>
-                                          <p class="text-md text-gray-600">Hasil verifikasi akan muncul di sini setelah Anda
+                                          <p class="text-md text-gray-600">Hasil verifikasi akan muncul di sini setelah
+                                                Anda
                                                 memasukkan dan mencari Plat Nomor.</p>
                                     </div>
                               <?php endif; ?>

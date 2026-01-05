@@ -1,7 +1,11 @@
 <?php
 session_start();
 
-if (!isset($_SESSION['user'])) {
+if (
+    !isset($_SESSION['user']) ||
+    !is_array($_SESSION['user']) ||
+    $_SESSION['user']['role'] !== 'mahasiswa'
+) {
     header('Location: ../../public/login.php');
     exit;
 }

@@ -1,16 +1,67 @@
 <?php
-
 session_start();
-if (!isset($_SESSION['user']) || $_SESSION['user'] !== 'petugas') {
-    if (!isset($_SESSION['user'])) {
-        header('Location: ../../public/login.php');
-        exit;
-    }
+require_once '../../include/connection.php';
+
+// 1. Proteksi Halaman
+if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'petugas') {
+    header('Location: ../../public/login.php');
+    exit;
 }
 
-$user_data = $_SESSION['user'] ?? ['nama' => 'Petugas Keamanan'];
+$pdo = Database::getConnection();
 
-$reports = [];
+try {
+    // 2. Query Log Aktivitas (Dosen, Mahasiswa, Tamu)
+    $sql_preview = "
+    SELECT * FROM (
+        SELECT u.nama_lengkap AS nama,
+            CASE 
+                WHEN u.email LIKE '%@mhs.ubpkarawang.ac.id' THEN 'Mahasiswa'
+                WHEN u.email LIKE '%@ubpkarawang.ac.id' THEN 'Dosen'
+                ELSE 'Staff'
+            END AS role,
+            al.access_time AS waktu, al.status AS aktivitas, 'civitas' AS tipe_log
+        FROM access_logs al
+        JOIN users u ON al.user_id = u.id
+        UNION ALL
+        SELECT name AS nama, 'Tamu' AS role, check_in AS waktu, 'masuk' AS aktivitas, 'tamu' AS tipe_log
+        FROM guests WHERE check_in IS NOT NULL
+        UNION ALL
+        SELECT name AS nama, 'Tamu' AS role, check_out AS waktu, 'keluar' AS aktivitas, 'tamu' AS tipe_log
+        FROM guests WHERE check_out IS NOT NULL
+    ) AS preview_gabungan ORDER BY waktu DESC LIMIT 4";
+
+    $home_logs = $pdo->query($sql_preview)->fetchAll(PDO::FETCH_ASSOC);
+
+    // 3. Query Peringatan Keamanan Aktif (Kotak Merah)
+    $sql_alerts = "SELECT * FROM lost_items WHERE status = 'hilang' ORDER BY created_at DESC LIMIT 2";
+    $active_alerts = $pdo->query($sql_alerts)->fetchAll(PDO::FETCH_ASSOC);
+
+    // Hitung jumlah laporan baru khusus hari ini (untuk badge NEW)
+    $sql_count = "SELECT COUNT(*) FROM lost_items WHERE status = 'hilang' AND DATE(created_at) = CURDATE()";
+    $total_new = $pdo->query($sql_count)->fetchColumn();
+
+    // 4. Query Laporan & Rekap Keamanan (Tabel reports & lost_items)
+    $sql_combined_reports = "
+    SELECT * FROM (
+        SELECT description AS judul, report_type AS kategori, generated_at AS waktu, 'laporan' AS tipe_data, 'keamanan' AS status_label
+        FROM reports
+        UNION ALL
+        SELECT item_name AS judul, location AS kategori, created_at AS waktu, 'kehilangan' AS tipe_data, status AS status_label
+        FROM lost_items
+    ) AS gabungan_keamanan ORDER BY waktu DESC LIMIT 5";
+
+    $all_security_data = $pdo->query($sql_combined_reports)->fetchAll(PDO::FETCH_ASSOC);
+
+} catch (PDOException $e) {
+    // Untuk debugging jika ada error: die($e->getMessage());
+    $home_logs = [];
+    $active_alerts = [];
+    $all_security_data = [];
+    $total_new = 0;
+}
+
+$user_data = $_SESSION['user'];
 ?>
 
 <!DOCTYPE html>
@@ -133,50 +184,43 @@ $reports = [];
                 </h3>
 
                 <div class="space-y-2">
-                    <div
-                        class="flex items-center justify-between p-2.5 hover:bg-gray-50 rounded-xl border border-transparent hover:border-gray-100 transition">
-                        <div class="flex items-center gap-3">
-                            <div
-                                class="w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-xs">
-                                <i class="fa-solid fa-arrow-right-from-bracket"></i>
-                            </div>
-                            <div>
-                                <p class="text-xs font-bold text-gray-800">M-001 (Mahasiswa)</p>
-                                <p class="text-[10px] text-gray-500 uppercase">Keluar • Pintu Utara</p>
-                            </div>
-                        </div>
-                        <span class="text-[10px] font-medium text-gray-400">10:45</span>
-                    </div>
+                    <?php if (empty($home_logs)): ?>
+                        <p class="text-[10px] text-gray-400 text-center py-4 italic">Belum ada aktivitas hari ini.</p>
+                    <?php else: ?>
+                        <?php foreach ($home_logs as $log):
+                            // Logika Icon dan Warna berdasarkan aktivitas
+                            $is_masuk = ($log['aktivitas'] === 'masuk');
+                            $bg_color = $is_masuk ? 'bg-blue-100 text-blue-600' : 'bg-green-100 text-green-600';
+                            $icon = $is_masuk ? 'fa-arrow-right-to-bracket' : 'fa-arrow-right-from-bracket';
 
-                    <div
-                        class="flex items-center justify-between p-2.5 hover:bg-gray-50 rounded-xl border border-transparent hover:border-gray-100 transition">
-                        <div class="flex items-center gap-3">
+                            // Jika tamu, kita bisa ubah warnanya sedikit agar beda
+                            if ($log['tipe_log'] === 'tamu') {
+                                $bg_color = $is_masuk ? 'bg-indigo-100 text-indigo-600' : 'bg-purple-100 text-purple-600';
+                            }
+                            ?>
                             <div
-                                class="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs">
-                                <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                                class="flex items-center justify-between p-2.5 hover:bg-gray-50 rounded-xl border border-transparent hover:border-gray-100 transition">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 <?= $bg_color ?> rounded-full flex items-center justify-center text-xs">
+                                        <i class="fa-solid <?= $icon ?>"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs font-bold text-gray-800">
+                                            <?= htmlspecialchars($log['nama']) ?> (
+                                            <?= $log['role'] ?>)
+                                        </p>
+                                        <p class="text-[10px] text-gray-500 uppercase">
+                                            <?= $log['aktivitas'] ?> •
+                                            <?= $log['tipe_log'] === 'tamu' ? 'Lobby' : 'Area Gedung' ?>
+                                        </p>
+                                    </div>
+                                </div>
+                                <span class="text-[10px] font-medium text-gray-400">
+                                    <?= date('H:i', strtotime($log['waktu'])) ?>
+                                </span>
                             </div>
-                            <div>
-                                <p class="text-xs font-bold text-gray-800">D-101 (Dosen)</p>
-                                <p class="text-[10px] text-gray-500 uppercase">Masuk • Pintu Utama</p>
-                            </div>
-                        </div>
-                        <span class="text-[10px] font-medium text-gray-400">09:15</span>
-                    </div>
-
-                    <div
-                        class="flex items-center justify-between p-2.5 hover:bg-gray-50 rounded-xl border border-transparent hover:border-gray-100 transition">
-                        <div class="flex items-center gap-3">
-                            <div
-                                class="w-8 h-8 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-xs">
-                                <i class="fa-solid fa-car"></i>
-                            </div>
-                            <div>
-                                <p class="text-xs font-bold text-gray-800">B 1234 A (Mobil)</p>
-                                <p class="text-[10px] text-gray-500 uppercase">Keluar • Parkir B</p>
-                            </div>
-                        </div>
-                        <span class="text-[10px] font-medium text-gray-400">09:00</span>
-                    </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </div>
 
                 <a href="log_history.php"
@@ -192,43 +236,51 @@ $reports = [];
                         <i class="fa-solid fa-triangle-exclamation mr-2 text-red-500 animate-pulse"></i>
                         Peringatan Keamanan Hari Ini
                     </h3>
-                    <span class="px-2 py-0.5 bg-red-500 text-white text-[10px] font-black rounded-full animate-bounce">
-                        3 NEW
-                    </span>
+                    <?php if ($total_new > 0): ?>
+                        <span class="px-2 py-0.5 bg-red-500 text-white text-[10px] font-black rounded-full animate-bounce">
+                            <?= $total_new ?> NEW
+                        </span>
+                    <?php endif; ?>
                 </div>
 
                 <div class="space-y-3">
-                    <div class="flex items-start gap-3 p-3 bg-white/80 rounded-xl border border-red-200 shadow-sm">
-                        <div class="mt-1">
-                            <i class="fa-solid fa-circle-exclamation text-red-500 text-sm"></i>
-                        </div>
-                        <div class="flex-1">
-                            <div class="flex justify-between items-start">
-                                <p class="text-xs font-bold text-gray-800">Akses Ditolak (QR Tidak Valid)</p>
-                                <span class="text-[9px] text-gray-400 font-medium">08:12 WIB</span>
+                    <?php if (empty($active_alerts)): ?>
+                        <p class="text-[10px] text-gray-400 text-center py-4 italic">Tidak ada peringatan keamanan aktif.
+                        </p>
+                    <?php else: ?>
+                        <?php foreach ($active_alerts as $alert):
+                            // Logika warna border berdasarkan urgensi (contoh: jika ada kata 'Kunci' atau 'HP' dianggap lebih urgen)
+                            $is_urgent = stripos($alert['item_name'], 'HP') !== false || stripos($alert['item_name'], 'Dompet') !== false;
+                            $border_color = $is_urgent ? 'border-red-200' : 'border-amber-200';
+                            $icon_color = $is_urgent ? 'text-red-500' : 'text-amber-500';
+                            $icon = $is_urgent ? 'fa-circle-exclamation' : 'fa-box-archive';
+                            ?>
+                            <div
+                                class="flex items-start gap-3 p-3 bg-white/80 rounded-xl border <?= $border_color ?> shadow-sm">
+                                <div class="mt-1">
+                                    <i class="fa-solid <?= $icon ?> <?= $icon_color ?> text-sm"></i>
+                                </div>
+                                <div class="flex-1">
+                                    <div class="flex justify-between items-start">
+                                        <p class="text-xs font-bold text-gray-800">Laporan Kehilangan:
+                                            <?= htmlspecialchars($alert['item_name']) ?>
+                                        </p>
+                                        <span class="text-[9px] text-gray-400 font-medium">
+                                            <?= date('H:i', strtotime($alert['created_at'])) ?> WIB
+                                        </span>
+                                    </div>
+                                    <p class="text-[10px] text-gray-500 mt-0.5">
+                                        Dilaporkan di
+                                        <?= htmlspecialchars($alert['location'] ?: 'Area Kampus') ?>. Mohon pantau area sekitar.
+                                    </p>
+                                </div>
                             </div>
-                            <p class="text-[10px] text-gray-500 mt-0.5">ID: MHS-99281 mencoba akses di Gerbang Barat.
-                            </p>
-                        </div>
-                    </div>
-
-                    <div class="flex items-start gap-3 p-3 bg-white/80 rounded-xl border border-amber-200 shadow-sm">
-                        <div class="mt-1">
-                            <i class="fa-solid fa-car-burst text-amber-500 text-sm"></i>
-                        </div>
-                        <div class="flex-1">
-                            <div class="flex justify-between items-start">
-                                <p class="text-xs font-bold text-gray-800">Parkir Melebihi Batas Waktu</p>
-                                <span class="text-[9px] text-gray-400 font-medium">14:05 WIB</span>
-                            </div>
-                            <p class="text-[10px] text-gray-500 mt-0.5">Kendaraan B 4432 KLY terpantau di Area Parkir C
-                                selama 24 jam+.</p>
-                        </div>
-                    </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </div>
 
                 <div class="grid grid-cols-2 gap-3 mt-4">
-                    <a href="../security_reports.php"
+                    <a href="form_reports.php"
                         class="py-2 text-[11px] font-bold text-center text-white bg-red-600 hover:bg-red-700 rounded-lg transition shadow-sm">
                         Lapor Sekarang
                     </a>
@@ -238,6 +290,7 @@ $reports = [];
                     </a>
                 </div>
             </div>
+        </div>
     </main>
 
     <footer class="w-full py-6 text-center text-gray-100 bg-gradient-to-b from-gray-600 to-blue-950 mt-10">

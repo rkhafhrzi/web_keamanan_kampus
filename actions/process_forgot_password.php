@@ -1,10 +1,20 @@
 <?php
-require_once __DIR__ . '/../controllers/PasswordResetController.php';
+require_once '../services/PasswordResetService.php';
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
+$email = trim($_POST['email'] ?? '');
+
+if (!$email) {
+    http_response_code(400);
+    echo 'EMAIL_KOSONG';
     exit;
 }
 
-$controller = new PasswordResetController();
-$controller->requestReset();
+$service = new PasswordResetService();
+
+if (!$service->sendVerificationCode($email)) {
+    http_response_code(404);
+    echo 'EMAIL_TIDAK_DITEMUKAN';
+    exit;
+}
+
+echo 'OK';
