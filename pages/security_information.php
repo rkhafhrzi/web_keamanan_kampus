@@ -38,24 +38,54 @@ $stmt->execute();
 $lostItems = $stmt->fetchAll();
 
 /**
- * DATA PERINGATAN (STATIC)
+ * DATA PERINGATAN DARI TABEL REPORTS
  */
-$alerts = [
-    [
-        'judul' => 'Waspada Pencurian Kendaraan',
-        'detail' => 'Terjadi peningkatan kasus pencurian motor di area parkir B.',
-        'tanggal' => '12 Des 2025',
-        'warna' => 'bg-red-100 text-red-800 border-red-400',
-        'icon' => 'fa-solid fa-triangle-exclamation'
-    ],
-    [
-        'judul' => 'Patroli Malam Diperpanjang',
-        'detail' => 'Patroli keamanan diperpanjang hingga pukul 02.00 WIB.',
-        'tanggal' => '10 Des 2025',
-        'warna' => 'bg-blue-100 text-blue-800 border-blue-400',
-        'icon' => 'fa-solid fa-circle-info'
-    ],
-];
+$stmtAlerts = $db->prepare("
+    SELECT 
+        report_type AS tipe,
+        description AS detail,
+        DATE_FORMAT(generated_at, '%d %b %Y') AS tanggal,
+        period_start,
+        period_end
+    FROM reports 
+    ORDER BY generated_at DESC 
+    LIMIT 10
+");
+$stmtAlerts->execute();
+$alertsFromDb = $stmtAlerts->fetchAll();
+
+/**
+ * Fungsi Mapping Warna & Ikon berdasarkan report_type
+ */
+function getReportStyle($type)
+{
+    switch ($type) {
+        case 'keamanan_harian':
+            return [
+                'judul' => 'Laporan Keamanan',
+                'warna' => 'bg-red-50 text-red-800 border-red-400',
+                'icon' => 'fa-solid fa-shield-halved'
+            ];
+        case 'akses_ruangan':
+            return [
+                'judul' => 'Akses Ruangan',
+                'warna' => 'bg-yellow-50 text-yellow-800 border-yellow-400',
+                'icon' => 'fa-solid fa-door-open'
+            ];
+        case 'gerbang':
+            return [
+                'judul' => 'Lalu Lintas Gerbang',
+                'warna' => 'bg-blue-50 text-blue-800 border-blue-400',
+                'icon' => 'fa-solid fa-id-card-clip'
+            ];
+        default:
+            return [
+                'judul' => 'Pemberitahuan',
+                'warna' => 'bg-gray-50 text-gray-800 border-gray-400',
+                'icon' => 'fa-solid fa-circle-info'
+            ];
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -194,12 +224,41 @@ $alerts = [
                     <!-- ALERT -->
                     <div id="content-alerts" class="tab-content"
                         style="<?= $active_tab === 'alerts' ? '' : 'display:none' ?>">
-                        <?php foreach ($alerts as $a): ?>
-                            <div class="p-4 rounded-xl border-l-4 <?= $a['warna'] ?>">
-                                <div class="font-bold"><i class="<?= $a['icon'] ?> mr-2"></i><?= $a['judul'] ?></div>
-                                <p class="text-sm"><?= $a['detail'] ?></p>
+
+                        <?php if (empty($alertsFromDb)): ?>
+                            <div class="text-center py-10 bg-gray-100 rounded-lg border border-dashed">
+                                <p class="text-gray-700 font-semibold">Tidak ada laporan peringatan saat ini.</p>
                             </div>
-                        <?php endforeach; ?>
+                        <?php else: ?>
+                            <div class="space-y-4">
+                                <?php foreach ($alertsFromDb as $a):
+                                    $style = getReportStyle($a['tipe']);
+                                    ?>
+                                    <div class="p-4 rounded-xl border-l-4 shadow-sm <?= $style['warna'] ?> border">
+                                        <div class="flex justify-between items-start mb-1">
+                                            <div class="font-bold text-sm uppercase tracking-wide">
+                                                <i class="<?= $style['icon'] ?> mr-2"></i><?= $style['judul'] ?>
+                                            </div>
+                                            <span class="text-[10px] font-semibold opacity-70">
+                                                <?= $a['tanggal'] ?>
+                                            </span>
+                                        </div>
+
+                                        <p class="text-sm leading-relaxed mb-2">
+                                            <?= htmlspecialchars($a['detail']) ?>
+                                        </p>
+
+                                        <?php if ($a['period_start'] && $a['period_end']): ?>
+                                            <div class="text-[10px] mt-2 pt-2 border-t border-black/10 flex items-center gap-2">
+                                                <i class="fa-regular fa-calendar"></i>
+                                                <span>Periode: <?= date('d/m/Y', strtotime($a['period_start'])) ?> -
+                                                    <?= date('d/m/Y', strtotime($a['period_end'])) ?></span>
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
 
                     <!-- MAP -->
